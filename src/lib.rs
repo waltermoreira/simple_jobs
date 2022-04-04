@@ -1,11 +1,9 @@
-use std::{
-    fs::File,
-    io::{Read, Write},
-    path::{Path, PathBuf}, fmt::Debug,
-};
+pub mod fs_job;
+
+use std::fmt::Debug;
 
 use futures::Future;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -72,86 +70,18 @@ pub trait Job: Clone + Send + 'static {
         self.info().id
     }
 
-    fn save(
-        &self,
-        info: &JobInfo<Self::Output, Self::Error>,
-    ) -> Result<(), Self::Error>;
+    fn save(&self, info: &JobInfo<Self::Output, Self::Error>) -> Result<(), Self::Error>;
 
-    fn info_from_id(
-        &self,
-        id: Uuid,
-    ) -> Result<JobInfo<Self::Output, Self::Error>, Self::Error>;
-}
-
-#[derive(Clone)]
-pub struct FSJob<'a, Output: Clone, Error> {
-    info: JobInfo<Output, Error>,
-    job_directory: &'a Path,
-}
-
-impl<'a, Output: Clone, Error> FSJob<'a, Output, Error> {
-    pub fn new(job_directory: &'a PathBuf) -> Self {
-        Self {
-            info: JobInfo::new(),
-            job_directory,
-        }
-    }
-}
-
-impl<
-        Output: Clone + Send + Serialize + DeserializeOwned + 'static,
-        Error: Clone
-            + Send
-            + Serialize
-            + DeserializeOwned
-            + std::error::Error
-            + std::convert::From<std::io::Error>
-            + std::convert::From<serde_json::Error>
-            + 'static,
-    > Job for FSJob<'static, Output, Error>
-{
-    type Output = Output;
-    type Error = Error;
-
-    fn info(&self) -> &JobInfo<Self::Output, Self::Error> {
-        &self.info
-    }
-
-    fn info_mut(&mut self) -> &mut JobInfo<Self::Output, Self::Error> {
-        &mut self.info
-    }
-
-    fn save(
-        &self,
-        info: &JobInfo<Self::Output, Self::Error>,
-    ) -> Result<(), Self::Error> {
-        let mut file =
-            File::create(self.job_directory.join(info.id.to_string()))?;
-        file.write_all(serde_json::to_string(info)?.as_bytes())?;
-        Ok(())
-    }
-
-    fn info_from_id(
-        &self,
-        id: Uuid,
-    ) -> Result<JobInfo<Self::Output, Self::Error>, Self::Error> {
-        let mut file = File::open(self.job_directory.join(id.to_string()))?;
-        let mut s = String::new();
-        file.read_to_string(&mut s)?;
-        let j: JobInfo<Output, Error> = serde_json::from_str(&s)?;
-        Ok(j)
-    }
+    fn info_from_id(&self, id: Uuid) -> Result<JobInfo<Self::Output, Self::Error>, Self::Error>;
 }
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
     use super::{Job, JobInfo, JobStatus};
+    use std::time::Duration;
 
     #[derive(Clone, Debug)]
-    pub struct MyError {
-
-    }
+    pub struct MyError {}
 
     static mut SAVED: Option<JobInfo<u16, MyError>> = None;
 
@@ -172,10 +102,7 @@ mod tests {
             &mut self.info
         }
 
-        fn save(
-            &self,
-            info: &JobInfo<Self::Output, Self::Error>,
-        ) -> Result<(), MyError> {
+        fn save(&self, info: &JobInfo<Self::Output, Self::Error>) -> Result<(), MyError> {
             unsafe {
                 SAVED = Some(info.clone());
             }
@@ -185,8 +112,7 @@ mod tests {
         fn info_from_id(
             &self,
             id: uuid::Uuid,
-        ) -> Result<JobInfo<Self::Output, Self::Error>, MyError>
-        {
+        ) -> Result<JobInfo<Self::Output, Self::Error>, MyError> {
             let mut j = JobInfo::new();
             j.id = id;
             Ok(j)
