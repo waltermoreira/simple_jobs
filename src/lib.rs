@@ -24,6 +24,12 @@ pub struct JobInfo<Output, Error> {
     pub result: Option<Result<Output, Error>>,
 }
 
+impl<Output, Error> Default for JobInfo<Output, Error> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<Output, Error> JobInfo<Output, Error> {
     pub fn new() -> Self {
         Self {
