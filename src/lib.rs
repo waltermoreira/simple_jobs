@@ -38,6 +38,65 @@ impl<Output, Error> JobInfo<Output, Error> {
     }
 }
 
+pub trait Saver: Clone + Send + Sync + 'static {
+    type Output: Clone + Send + 'static;
+    type Error: Clone + Send + 'static;
+
+    fn save(
+        &self,
+        info: &JobInfo<Self::Output, Self::Error>,
+    ) -> Result<(), std::io::Error>;
+    fn load(
+        &self,
+        id: Uuid,
+    ) -> Result<JobInfo<Self::Output, Self::Error>, std::io::Error>;
+
+    fn submit<F>(&self, f: F) -> Result<Uuid, std::io::Error>
+    where
+        F: Future<Output = Result<Self::Output, Self::Error>> + Send + 'static,
+    {
+        let mut info: JobInfo<Self::Output, Self::Error> = JobInfo::default();
+        info.status = JobStatus::Started;
+        self.save(&info)?;
+        let id = info.id;
+        {
+            let this = self.clone();
+            tokio::spawn(async move {
+                let res = f.await;
+                info.status = JobStatus::Finished;
+                info.result = Some(res);
+                this.save(&info).unwrap();
+            });
+        }
+
+        Ok(id)
+    }
+}
+
+// fn submit<F, Output, Error, S>(f: F, saver: &S) -> Result<Uuid, std::io::Error>
+// where
+//     Output: Clone + Sync + Send + 'static,
+//     Error: Clone + Sync + Send + 'static,
+//     F: Future<Output = Result<Output, Error>> + Send + 'static,
+//     S: Saver<Output = Output, Error = Error> + Sync + Send + Clone,
+// {
+//     let mut info: JobInfo<Output, Error> = JobInfo::default();
+//     info.status = JobStatus::Started;
+//     saver.save(&info)?;
+//     let id = info.id;
+//     {
+//         let saver_clone = saver.clone();
+//         let mut info_clone = info.clone();
+//         tokio::spawn(async move {
+//             let res = f.await;
+//             info_clone.status = JobStatus::Finished;
+//             info_clone.result = Some(res);
+//             saver_clone.save(&info).expect("cannot save");
+//         });
+//     }
+//     Ok(id)
+// }
+
 pub trait Job: Clone + Send + 'static {
     type Output: Clone + Send + 'static;
     type Error: Clone + Send + Debug + 'static;
@@ -70,13 +129,21 @@ pub trait Job: Clone + Send + 'static {
         self.info().id
     }
 
-    fn save(&self, info: &JobInfo<Self::Output, Self::Error>) -> Result<(), Self::Error>;
+    fn save(
+        &self,
+        info: &JobInfo<Self::Output, Self::Error>,
+    ) -> Result<(), Self::Error>;
 
-    fn info_from_id(&self, id: Uuid) -> Result<JobInfo<Self::Output, Self::Error>, Self::Error>;
+    fn info_from_id(
+        &self,
+        id: Uuid,
+    ) -> Result<JobInfo<Self::Output, Self::Error>, Self::Error>;
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::Saver;
+
     use super::{Job, JobInfo, JobStatus};
     use std::time::Duration;
 
@@ -102,7 +169,10 @@ mod tests {
             &mut self.info
         }
 
-        fn save(&self, info: &JobInfo<Self::Output, Self::Error>) -> Result<(), MyError> {
+        fn save(
+            &self,
+            info: &JobInfo<Self::Output, Self::Error>,
+        ) -> Result<(), MyError> {
             unsafe {
                 SAVED = Some(info.clone());
             }
@@ -117,6 +187,45 @@ mod tests {
             j.id = id;
             Ok(j)
         }
+    }
+
+    #[derive(Clone)]
+    struct MySaver {}
+
+    impl Saver for MySaver {
+        type Output = u16;
+        type Error = MyError;
+
+        fn save(
+            &self,
+            info: &JobInfo<Self::Output, Self::Error>,
+        ) -> Result<(), std::io::Error> {
+            unsafe {
+                SAVED = Some(info.clone());
+            }
+            Ok(())
+        }
+
+        fn load(
+            &self,
+            id: uuid::Uuid,
+        ) -> Result<JobInfo<Self::Output, Self::Error>, std::io::Error>
+        {
+            let mut j = JobInfo::default();
+            j.id = id;
+            Ok(j)
+        }
+    }
+
+    #[tokio::test]
+    async fn submit_should_save_with_saver() -> Result<(), std::io::Error> {
+        let saver = MySaver {};
+        let id = saver.submit(async { Ok(2u16) })?;
+        unsafe {
+            assert!(SAVED.is_some());
+            assert_eq!(SAVED.as_ref().unwrap().id, id);
+        }
+        Ok(())
     }
 
     #[tokio::test]
