@@ -73,78 +73,11 @@ pub trait Saver: Clone + Send + Sync + 'static {
     }
 }
 
-// fn submit<F, Output, Error, S>(f: F, saver: &S) -> Result<Uuid, std::io::Error>
-// where
-//     Output: Clone + Sync + Send + 'static,
-//     Error: Clone + Sync + Send + 'static,
-//     F: Future<Output = Result<Output, Error>> + Send + 'static,
-//     S: Saver<Output = Output, Error = Error> + Sync + Send + Clone,
-// {
-//     let mut info: JobInfo<Output, Error> = JobInfo::default();
-//     info.status = JobStatus::Started;
-//     saver.save(&info)?;
-//     let id = info.id;
-//     {
-//         let saver_clone = saver.clone();
-//         let mut info_clone = info.clone();
-//         tokio::spawn(async move {
-//             let res = f.await;
-//             info_clone.status = JobStatus::Finished;
-//             info_clone.result = Some(res);
-//             saver_clone.save(&info).expect("cannot save");
-//         });
-//     }
-//     Ok(id)
-// }
-
-pub trait Job: Clone + Send + 'static {
-    type Output: Clone + Send + 'static;
-    type Error: Clone + Send + Debug + 'static;
-
-    fn info(&self) -> &JobInfo<Self::Output, Self::Error>;
-    fn info_mut(&mut self) -> &mut JobInfo<Self::Output, Self::Error>;
-
-    fn submit<F>(&mut self, f: F) -> Result<(), Self::Error>
-    where
-        F: Future<Output = Result<Self::Output, Self::Error>> + Send + 'static,
-    {
-        let this = self.clone();
-        let mut data = self.info_mut();
-        data.status = JobStatus::Started;
-        this.save(data)?;
-        {
-            let mut data = self.info_mut().clone();
-            let this = self.clone();
-            tokio::spawn(async move {
-                let res = f.await;
-                data.status = JobStatus::Finished;
-                data.result = Some(res);
-                this.save(&data).expect("cannot save");
-            });
-        }
-        Ok(())
-    }
-
-    fn id(&self) -> Uuid {
-        self.info().id
-    }
-
-    fn save(
-        &self,
-        info: &JobInfo<Self::Output, Self::Error>,
-    ) -> Result<(), Self::Error>;
-
-    fn info_from_id(
-        &self,
-        id: Uuid,
-    ) -> Result<JobInfo<Self::Output, Self::Error>, Self::Error>;
-}
-
 #[cfg(test)]
 mod tests {
     use crate::Saver;
 
-    use super::{Job, JobInfo, JobStatus};
+    use super::JobInfo;
     use std::time::Duration;
 
     #[derive(Clone, Debug)]
@@ -155,38 +88,6 @@ mod tests {
     #[derive(Clone)]
     pub struct TestJob {
         info: JobInfo<u16, MyError>,
-    }
-
-    impl Job for TestJob {
-        type Output = u16;
-        type Error = MyError;
-
-        fn info(&self) -> &JobInfo<Self::Output, Self::Error> {
-            &self.info
-        }
-
-        fn info_mut(&mut self) -> &mut JobInfo<Self::Output, Self::Error> {
-            &mut self.info
-        }
-
-        fn save(
-            &self,
-            info: &JobInfo<Self::Output, Self::Error>,
-        ) -> Result<(), MyError> {
-            unsafe {
-                SAVED = Some(info.clone());
-            }
-            Ok(())
-        }
-
-        fn info_from_id(
-            &self,
-            id: uuid::Uuid,
-        ) -> Result<JobInfo<Self::Output, Self::Error>, MyError> {
-            let mut j = JobInfo::new();
-            j.id = id;
-            Ok(j)
-        }
     }
 
     #[derive(Clone)]
@@ -229,7 +130,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn task_should_change_states_with_saver() -> Result<(), std::io::Error> {
+    async fn task_should_change_states_with_saver() -> Result<(), std::io::Error>
+    {
         let saver = MySaver {};
         saver.submit(async {
             tokio::time::sleep(Duration::from_secs(1)).await;
