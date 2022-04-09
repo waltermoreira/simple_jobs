@@ -229,26 +229,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn submit_should_save() -> Result<(), MyError> {
-        let mut job = TestJob {
-            info: JobInfo::new(),
-        };
-        job.submit(async { Ok(2u16) })?;
-        // actix_web::rt::time::sleep(Duration::from_secs(1)).await;
-        unsafe {
-            assert!(SAVED.is_some());
-            assert_eq!(SAVED.as_ref().unwrap().id, job.id());
-        }
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn task_should_change_states() -> Result<(), MyError> {
-        let mut job = TestJob {
-            info: JobInfo::new(),
-        };
-        assert_eq!(job.info.status, super::JobStatus::Created);
-        job.submit(async {
+    async fn task_should_change_states_with_saver() -> Result<(), std::io::Error> {
+        let saver = MySaver {};
+        saver.submit(async {
             tokio::time::sleep(Duration::from_secs(1)).await;
             Ok(10u16)
         })?;
@@ -261,12 +244,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn task_should_finish() -> Result<(), MyError> {
-        let mut job = TestJob {
-            info: JobInfo::new(),
-        };
-        assert_eq!(job.info.status, super::JobStatus::Created);
-        job.submit(async {
+    async fn task_should_finish_with_saver() -> Result<(), std::io::Error> {
+        let saver = MySaver {};
+        saver.submit(async {
             tokio::time::sleep(Duration::from_millis(500)).await;
             Ok(10u16)
         })?;
@@ -283,26 +263,24 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn can_save_from_task() -> Result<(), MyError> {
-        let mut job = TestJob {
-            info: JobInfo::new(),
-        };
-        {
-            let job2 = job.clone();
-            job.submit(async move {
-                let mut j = job2.info_from_id(job2.id()).unwrap();
-                j.status = JobStatus::Running;
-                job2.save(&j).unwrap();
-                tokio::time::sleep(Duration::from_millis(500)).await;
-                Ok(20u16)
-            })?;
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        unsafe {
-            assert!(SAVED.is_some());
-            assert_eq!(SAVED.as_ref().unwrap().status, JobStatus::Running);
-        }
-        Ok(())
-    }
+    // #[tokio::test]
+    // async fn can_save_from_task_with_saver() -> Result<(), std::io::Error> {
+    //     let saver = MySaver {};
+    //     {
+    //         let saver2 = saver.clone();
+    //         saver.submit(async move {
+    //             let mut j = saver2.load(job2.id()).unwrap();
+    //             j.status = JobStatus::Running;
+    //             job2.save(&j).unwrap();
+    //             tokio::time::sleep(Duration::from_millis(500)).await;
+    //             Ok(20u16)
+    //         })?;
+    //     }
+    //     tokio::time::sleep(Duration::from_millis(100)).await;
+    //     unsafe {
+    //         assert!(SAVED.is_some());
+    //         assert_eq!(SAVED.as_ref().unwrap().status, JobStatus::Running);
+    //     }
+    //     Ok(())
+    // }
 }
