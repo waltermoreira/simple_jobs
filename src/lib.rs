@@ -38,7 +38,7 @@ impl<Output, Error> JobInfo<Output, Error> {
     }
 }
 
-pub trait Saver: Clone + Send + Sync + 'static {
+pub trait Job: Clone + Send + Sync + 'static {
     type Output: Clone + Send + 'static;
     type Error: Clone + Send + 'static;
 
@@ -75,7 +75,7 @@ pub trait Saver: Clone + Send + Sync + 'static {
 
 #[cfg(test)]
 mod tests {
-    use crate::Saver;
+    use crate::Job;
 
     use super::JobInfo;
     use std::time::Duration;
@@ -86,14 +86,9 @@ mod tests {
     static mut SAVED: Option<JobInfo<u16, MyError>> = None;
 
     #[derive(Clone)]
-    pub struct TestJob {
-        info: JobInfo<u16, MyError>,
-    }
-
-    #[derive(Clone)]
     struct MySaver {}
 
-    impl Saver for MySaver {
+    impl Job for MySaver {
         type Output = u16;
         type Error = MyError;
 
