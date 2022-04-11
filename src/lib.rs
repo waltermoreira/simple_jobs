@@ -152,6 +152,20 @@ mod tests {
         Ok(())
     }
 
+    #[tokio::test]
+    async fn task_should_save_error() -> Result<(), std::io::Error> {
+        let saver = MySaver {};
+        let id = saver.submit(async {
+            Err(MyError {})
+        })?;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let saved = SAVED.lock().expect("coudn't get lock");
+        let a = saved.get(&id).unwrap();
+        assert_eq!(a.status, super::JobStatus::Finished);
+        assert!(a.result.as_ref().unwrap().as_ref().is_err());
+        Ok(())
+    }
+
     // #[tokio::test]
     // async fn can_save_from_task_with_saver() -> Result<(), std::io::Error> {
     //     let saver = MySaver {};
