@@ -9,7 +9,6 @@ use uuid::Uuid;
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum JobStatus {
-    Created,
     Started,
     Running,
     Finished,
@@ -32,7 +31,7 @@ impl<Output, Error> JobInfo<Output, Error> {
     pub fn new() -> Self {
         Self {
             id: Uuid::new_v4(),
-            status: JobStatus::Created,
+            status: JobStatus::Started,
             result: None,
         }
     }
@@ -56,7 +55,6 @@ pub trait Job: Clone + Send + Sync + 'static {
         F: Future<Output = Result<Self::Output, Self::Error>> + Send + 'static,
     {
         let mut info: JobInfo<Self::Output, Self::Error> = JobInfo::default();
-        info.status = JobStatus::Started;
         self.save(&info)?;
         let id = info.id;
         {
@@ -76,14 +74,19 @@ pub trait Job: Clone + Send + Sync + 'static {
 #[cfg(test)]
 mod tests {
     use crate::Job;
+    use lazy_static::lazy_static;
+    use uuid::Uuid;
 
     use super::JobInfo;
-    use std::time::Duration;
+    use std::{collections::HashMap, sync::Mutex, time::Duration};
 
     #[derive(Clone, Debug)]
     pub struct MyError {}
 
-    static mut SAVED: Option<JobInfo<u16, MyError>> = None;
+    lazy_static! {
+        static ref SAVED: Mutex<HashMap<Uuid, JobInfo<u16, MyError>>> =
+            Mutex::new(HashMap::new());
+    }
 
     #[derive(Clone)]
     struct MySaver {}
@@ -96,9 +99,8 @@ mod tests {
             &self,
             info: &JobInfo<Self::Output, Self::Error>,
         ) -> Result<(), std::io::Error> {
-            unsafe {
-                SAVED = Some(info.clone());
-            }
+            let mut saved = SAVED.lock().expect("cannot get lock");
+            saved.insert(info.id, info.clone());
             Ok(())
         }
 
@@ -107,9 +109,8 @@ mod tests {
             id: uuid::Uuid,
         ) -> Result<JobInfo<Self::Output, Self::Error>, std::io::Error>
         {
-            let mut j = JobInfo::default();
-            j.id = id;
-            Ok(j)
+            let x = SAVED.lock().unwrap().get(&id).unwrap().clone();
+            Ok(x)
         }
     }
 
@@ -117,10 +118,8 @@ mod tests {
     async fn submit_should_save_with_saver() -> Result<(), std::io::Error> {
         let saver = MySaver {};
         let id = saver.submit(async { Ok(2u16) })?;
-        unsafe {
-            assert!(SAVED.is_some());
-            assert_eq!(SAVED.as_ref().unwrap().id, id);
-        }
+        let saved = SAVED.lock().expect("couldn't get lock");
+        assert_eq!(saved.get(&id).expect("couldn't get id").id, id);
         Ok(())
     }
 
@@ -128,35 +127,28 @@ mod tests {
     async fn task_should_change_states_with_saver() -> Result<(), std::io::Error>
     {
         let saver = MySaver {};
-        saver.submit(async {
+        let id = saver.submit(async {
             tokio::time::sleep(Duration::from_secs(1)).await;
             Ok(10u16)
         })?;
-        unsafe {
-            assert!(SAVED.is_some());
-            let a = &SAVED.as_ref().unwrap().status;
-            assert_eq!(*a, super::JobStatus::Started);
-        }
+        let saved = SAVED.lock().expect("coudn't get lock");
+        let a = saved.get(&id).unwrap();
+        assert_eq!(a.status, super::JobStatus::Started);
         Ok(())
     }
 
     #[tokio::test]
     async fn task_should_finish_with_saver() -> Result<(), std::io::Error> {
         let saver = MySaver {};
-        saver.submit(async {
+        let id = saver.submit(async {
             tokio::time::sleep(Duration::from_millis(500)).await;
             Ok(10u16)
         })?;
         tokio::time::sleep(Duration::from_secs(1)).await;
-        unsafe {
-            assert!(SAVED.is_some());
-            let a = &SAVED.as_ref().unwrap().status;
-            assert_eq!(*a, super::JobStatus::Finished);
-            let b = &SAVED.as_ref().unwrap().result;
-            assert!(b.is_some());
-            let c = &b.as_ref().unwrap().as_ref().unwrap();
-            assert_eq!(**c, 10u16);
-        }
+        let saved = SAVED.lock().expect("coudn't get lock");
+        let a = saved.get(&id).unwrap();
+        assert_eq!(a.status, super::JobStatus::Finished);
+        assert_eq!(a.result.as_ref().unwrap().as_ref().unwrap(), &10u16);
         Ok(())
     }
 
