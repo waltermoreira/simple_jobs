@@ -1,8 +1,8 @@
 //! # Very simple persistent jobs
 //!
 //! A simple wrapper for
-//! [`Tokio`] tasks, where the tasks are saved to a backend of choice, undefined
-//! undefined and they can be queried for their status.
+//! [`Tokio`] tasks, where the tasks are saved to a backend of choice,
+//! and they can be queried for their status.
 //!
 //! As an example, the crate provides the implementation for saving tasks to the
 //! filesystem.  
@@ -25,7 +25,6 @@
 //! # use serde::{Deserialize, Serialize}; 
 //! # #[derive(Clone, Serialize, Deserialize, Debug)]
 //! # struct MyError {}
-//! # 
 //! async fn example() -> std::io::Result<()> {
 //!     let job: FSJob<u16, MyError> = FSJob::new("/tmp".into());
 //!     let id = job.submit(|id, job| async move {
