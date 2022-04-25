@@ -10,7 +10,7 @@ struct MyError {}
 async fn test_submit() -> std::io::Result<()> {
     let dir = tempfile::tempdir()?;
     let job: FSJob<u16, MyError> = FSJob::new(dir.path().into());
-    let j = job.submit(|_| async move { Ok(1u16) })?;
+    let j = job.submit(|_id, _job| async move { Ok(1u16) })?;
     let j2 = loop {
         let jj = job.load(j)?;
         if jj.status == JobStatus::Finished {

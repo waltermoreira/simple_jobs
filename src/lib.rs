@@ -52,7 +52,7 @@ pub trait Job: Clone + Send + Sync + 'static {
 
     fn submit<F, Fut>(&self, f: F) -> Result<Uuid, std::io::Error>
     where
-        F: Fn(Uuid) -> Fut,
+        F: Fn(Uuid, Self) -> Fut,
         Fut:
             Future<Output = Result<Self::Output, Self::Error>> + Send + 'static,
     {
@@ -61,7 +61,8 @@ pub trait Job: Clone + Send + Sync + 'static {
         let id = info.id;
         {
             let this = self.clone();
-            let fut = f(id);
+            let that = self.clone();
+            let fut = f(id, that);
             tokio::spawn(async move {
                 let res = fut.await;
                 info.status = JobStatus::Finished;
@@ -120,7 +121,7 @@ mod tests {
     #[tokio::test]
     async fn submit_should_save_with_saver() -> Result<(), std::io::Error> {
         let saver = MySaver {};
-        let id = saver.submit(|_| async { Ok(2u16) })?;
+        let id = saver.submit(|_, _| async { Ok(2u16) })?;
         let saved = SAVED.lock().expect("couldn't get lock");
         assert_eq!(saved.get(&id).expect("couldn't get id").id, id);
         Ok(())
@@ -130,7 +131,7 @@ mod tests {
     async fn task_should_change_states_with_saver() -> Result<(), std::io::Error>
     {
         let saver = MySaver {};
-        let id = saver.submit(|_| async {
+        let id = saver.submit(|_, _| async {
             tokio::time::sleep(Duration::from_secs(1)).await;
             Ok(10u16)
         })?;
@@ -143,7 +144,7 @@ mod tests {
     #[tokio::test]
     async fn task_should_finish_with_saver() -> Result<(), std::io::Error> {
         let saver = MySaver {};
-        let id = saver.submit(|_| async {
+        let id = saver.submit(|_, _| async {
             tokio::time::sleep(Duration::from_millis(500)).await;
             Ok(10u16)
         })?;
@@ -158,7 +159,7 @@ mod tests {
     #[tokio::test]
     async fn task_should_save_error() -> Result<(), std::io::Error> {
         let saver = MySaver {};
-        let id = saver.submit(|_| async { Err(MyError {}) })?;
+        let id = saver.submit(|_, _| async { Err(MyError {}) })?;
         tokio::time::sleep(Duration::from_millis(100)).await;
         let saved = SAVED.lock().expect("coudn't get lock");
         let a = saved.get(&id).unwrap();
@@ -170,7 +171,7 @@ mod tests {
     #[tokio::test]
     async fn can_read_from_task_with_saver() -> Result<(), std::io::Error> {
         let saver = MySaver {};
-        let id = saver.submit(|id| async move {
+        let id = saver.submit(|id, _| async move {
             let saver = MySaver {};
             let j = saver.load(id).unwrap();
             let i = j.id.as_fields().1;
@@ -187,9 +188,27 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn can_read_from_task_with_job_argument() -> Result<(), std::io::Error>
+    {
+        let job = MySaver {};
+        let id = job.submit(|id, job| async move {
+            let jobinfo = job.load(id).unwrap();
+            Ok(jobinfo.id.as_fields().1)
+        })?;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let saved = SAVED.lock().expect("coudn't get lock");
+        let a = saved.get(&id).unwrap();
+        assert_eq!(
+            a.result.as_ref().unwrap().as_ref().unwrap(),
+            &id.as_fields().1
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn can_write_from_task_with_saver() -> Result<(), std::io::Error> {
         let saver = MySaver {};
-        let id = saver.submit(|id| async move {
+        let id = saver.submit(|id, _| async move {
             let saver = MySaver {};
             let mut j = saver.load(id).unwrap();
             j.status = JobStatus::Running;
