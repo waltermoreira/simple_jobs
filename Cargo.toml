@@ -2,6 +2,9 @@
 name = "simple_jobs"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
+description = "Very simple persistence layer on top of Tokio tasks."
+authors = ["Walter Moreira <walter@waltermoreira.net>"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
