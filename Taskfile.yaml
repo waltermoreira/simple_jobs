@@ -1,0 +1,39 @@
+# Taskfile for simple_jobs
+#
+# Get `Task` from https://taskfile.dev/#/installation
+# List all available tasks:
+#
+#     $ task -a
+#
+version: "3"
+
+tasks:
+  test:
+    desc: "Run tests"
+    cmds:
+      - cargo test
+
+  clippy:
+    desc: "Run clippy"
+    cmds:
+      - cargo clippy --all-features --tests
+
+  lint:
+    desc: "Test and clippy"
+    deps:
+      - test
+      - clippy
+
+  install-watch:
+    desc: "Install cargo watch"
+    cmds:
+      - cargo install cargo-watch
+    status:
+      - cargo watch -V
+
+  dev-docs:
+    desc: "Run docs with reloading"
+    deps:
+      - install-watch
+    cmds:
+      - cargo watch -x 'doc'
