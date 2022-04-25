@@ -1,3 +1,46 @@
+//! # Very simple persistent jobs
+//!
+//! A simple wrapper for
+//! [`Tokio`] tasks, where the tasks are saved to a backend of choice, undefined
+//! undefined and they can be queried for their status.
+//!
+//! As an example, the crate provides the implementation for saving tasks to the
+//! filesystem.  
+//!
+//! ## Defining the backend
+//!
+//! The trait [`Job`] requires the functions [`Job::save`] and [`Job::load`] that
+//! save and restore the struct [`JobInfo`].
+//!
+//! ## Using the [`FSJob`] implementation
+//!
+//! The struct [`FSJob`] implements the trait [`Job`] by saving and restoring the
+//! job information from the filesystem.  Each job gets a unique file, constructed
+//! from the unique job id.
+//!
+//! ### Example:
+//!
+//! ```
+//! # use simple_jobs::{self, Job, FSJob};
+//! # use serde::{Deserialize, Serialize}; 
+//! # #[derive(Clone, Serialize, Deserialize, Debug)]
+//! # struct MyError {}
+//! # 
+//! async fn example() -> std::io::Result<()> {
+//!     let job: FSJob<u16, MyError> = FSJob::new("/tmp".into());
+//!     let id = job.submit(|id, job| async move {
+//!         Ok(0u16)
+//!     })?;
+//!     let info = job.load(id)?;
+//!     println!("Job status: {:?}", info.status);
+//!     Ok(())
+//! }
+//! ```
+//!
+//! [`Tokio`]: https://tokio.rs/
+
+pub use self::fs_job::FSJob;
+
 pub mod fs_job;
 
 use std::fmt::Debug;
@@ -6,6 +49,11 @@ use futures::Future;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+/// The status value for a job.
+/// 
+/// Immediately after [`Job::submit`] the status is `Started`.
+/// On completion, the status if `Finished`, regardless of whether that task
+/// succeeded or errored (see the field `result` of [`JobInfo`] to differentiate).
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum JobStatus {
@@ -14,10 +62,19 @@ pub enum JobStatus {
     Finished,
 }
 
+/// Metadata for a job.
+/// 
+/// This is the data that gets saved and restored.
+/// 
+/// The field result is `None` while there is no output from the job. On completion,
+/// the proper branch for `Result` is set.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct JobInfo<Output, Error> {
+    /// The unique id for a job (UUID v4).
     pub id: Uuid,
+    /// Job status (see [`JobStatus`]).
     pub status: JobStatus,
+    /// Result of the job (`None` while there is no output).
     pub result: Option<Result<Output, Error>>,
 }
 
@@ -28,6 +85,9 @@ impl<Output, Error> Default for JobInfo<Output, Error> {
 }
 
 impl<Output, Error> JobInfo<Output, Error> {
+    /// Create new information for a job.
+    /// 
+    /// Usually, the user does not need to create this struct manually.
     pub fn new() -> Self {
         Self {
             id: Uuid::new_v4(),
@@ -37,19 +97,34 @@ impl<Output, Error> JobInfo<Output, Error> {
     }
 }
 
+/// A job.
+/// 
+/// This is the main trait that the user should implement.
 pub trait Job: Clone + Send + Sync + 'static {
     type Output: Clone + Send + 'static;
     type Error: Clone + Send + 'static;
 
+    /// Save the job metadata.
+    /// 
+    /// Given a reference to a [`JobInfo`], save it in the chosen backend.
     fn save(
         &self,
         info: &JobInfo<Self::Output, Self::Error>,
     ) -> Result<(), std::io::Error>;
+
+    /// Load the metadata for a job.
+    /// 
+    /// Given the id for a job, build a [`JobInfo`] from the chosen backend.
     fn load(
         &self,
         id: Uuid,
     ) -> Result<JobInfo<Self::Output, Self::Error>, std::io::Error>;
 
+    /// Start a job.
+    /// 
+    /// Start a job, passing it the id ([`Uuid`]) and the job metadata ([`JobInfo`]).
+    /// With that information, the job can update its status (using `.load` and 
+    /// `.save`).
     fn submit<F, Fut>(&self, f: F) -> Result<Uuid, std::io::Error>
     where
         F: Fn(Uuid, Self) -> Fut,

@@ -10,6 +10,10 @@ use uuid::Uuid;
 
 use crate::{Job, JobInfo};
 
+/// A basic implementation of the trait [`Job`].
+/// 
+/// This implementation saves the job metadata [`JobInfo`] in a file, using
+/// the job id to make the file unique.
 #[derive(Clone)]
 pub struct FSJob<Output, Error> {
     job_directory: PathBuf,
@@ -18,6 +22,9 @@ pub struct FSJob<Output, Error> {
 }
 
 impl<Output, Error> FSJob<Output, Error> {
+    /// Create a new [`FSJob`].
+    /// 
+    /// The argument indicates a directory where to save the files for each job.
     pub fn new(job_directory: PathBuf) -> Self {
         Self {
             job_directory,
