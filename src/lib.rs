@@ -49,7 +49,7 @@ extern crate diesel;
 #[cfg(feature = "diesel_jobs")]
 pub mod sqlite_job;
 
-use std::fmt::Debug;
+use std::fmt::{Debug, Display, self};
 
 use futures::Future;
 use serde::{Deserialize, Serialize};
@@ -66,6 +66,16 @@ pub enum JobStatus {
     Started,
     Running,
     Finished,
+}
+
+impl fmt::Display for JobStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::Started => write!(f, "started"),
+            Self::Running => write!(f, "running"),
+            Self::Finished => write!(f, "finished"),
+        }
+    }
 }
 
 /// Metadata for a job.
