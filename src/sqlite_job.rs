@@ -1,22 +1,22 @@
-use crate::{schema::*, JobStatus};
+use crate::{schema::*};
 use diesel::r2d2::Pool;
 use diesel::{
     prelude::*,
-    r2d2::{ConnectionManager, PooledConnection},
+    r2d2::{ConnectionManager},
     Insertable,
 };
 use serde::Deserialize;
 use serde::{de::DeserializeOwned, Serialize};
-use std::fs::File;
+
 use std::marker::PhantomData;
-use std::sync::{Arc, Mutex};
+
 use uuid::Uuid;
 
 use crate::{Job, JobInfo};
 
 /// struct representing a job stored in the sqlite db; each attr corresponds to a column in the sql db.
 #[derive(Debug, Insertable)]
-#[table_name = "jobInfo"]
+#[table_name = "job_info"]
 pub struct JobInfoDB<'a> {
     pub uuid: &'a str,
     pub status: &'a str,
@@ -72,7 +72,7 @@ impl<
             status: &info.status.to_string(),
             output: &(serde_json::to_string(&info.result)?),
         };
-        diesel::insert_into(jobInfo::table)
+        diesel::insert_into(job_info::table)
             .values(&new_job_db_info)
             .execute(&conn)
             .map_err(|e| {
@@ -88,8 +88,8 @@ impl<
         let conn = self.db_pool.get().map_err(|e| {
             std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
         })?;
-        use crate::schema::jobInfo::uuid;
-        let job_info_result = jobInfo::dsl::jobInfo
+        use crate::schema::job_info::uuid;
+        let job_info_result = job_info::dsl::job_info
             .filter(uuid.eq(id.to_string()))
             .load::<JobInfoResultDB>(&conn)
             .map_err(|e| {

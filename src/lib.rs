@@ -49,7 +49,7 @@ extern crate diesel;
 #[cfg(feature = "diesel_jobs")]
 pub mod sqlite_job;
 
-use std::fmt::{Debug, Display, self};
+use std::fmt::{Debug, self};
 
 use futures::Future;
 use serde::{Deserialize, Serialize};

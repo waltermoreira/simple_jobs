@@ -1,5 +1,5 @@
 table!{
-    jobInfo (id) {
+    job_info (id) {
         id -> Integer,
         uuid -> Text,
         status -> Text,
