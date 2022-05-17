@@ -69,7 +69,7 @@ impl<
         })?;
         let new_job_db_info = JobInfoDB {
             uuid: &info.id.to_string(),
-            status: &info.status.to_string(),
+            status: &(serde_json::to_string(&info.status)?),
             output: &(serde_json::to_string(&info.result)?),
         };
         diesel::insert_into(job_info::table)
