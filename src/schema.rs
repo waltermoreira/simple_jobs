@@ -1,4 +1,4 @@
-table!{
+table! {
     job_info (id) {
         id -> Integer,
         uuid -> Text,

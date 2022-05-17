@@ -86,16 +86,16 @@ impl<
         id: Uuid,
     ) -> Result<JobInfo<Self::Output, Self::Error>, std::io::Error> {
         let conn = self.db_pool.get().map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+            std::io::Error::new(std::io::ErrorKind::Other, format!("coudl not get connection: {}", e.to_string()))
         })?;
         use crate::schema::job_info::uuid;
         let job_info_result = job_info::dsl::job_info
             .filter(uuid.eq(id.to_string()))
             .load::<JobInfoResultDB>(&conn)
             .map_err(|e| {
-                std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+                std::io::Error::new(std::io::ErrorKind::Other, format!("could not load job_info_result: {}", e.to_string()))
             })?;
-
+        dbg!(&job_info_result);
         let job_info = job_info_result
             .first()
             .ok_or_else(|| {
@@ -104,9 +104,10 @@ impl<
                     format!("Could not find {id} in the database."),
                 )
             })?;
+        dbg!(&job_info);
         let job = JobInfo {
             id: Uuid::parse_str(&job_info.uuid).map_err(|e| {
-                std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+                std::io::Error::new(std::io::ErrorKind::Other, format!("could not parse uuid: {}", e.to_string()))
             })?,
             status: serde_json::from_str(&job_info.status)?,
             result: serde_json::from_str(&job_info.output)?,
