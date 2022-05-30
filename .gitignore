@@ -1,3 +1,4 @@
 target/
 .vscode/
 jobs.db
+.DS_Store
