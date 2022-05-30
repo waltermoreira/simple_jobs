@@ -4,5 +4,6 @@ table! {
         uuid -> Text,
         status -> Text,
         output -> Text,
+        create_time -> Text,
     }
 }

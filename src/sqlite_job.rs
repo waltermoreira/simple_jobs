@@ -1,4 +1,5 @@
 use crate::{schema::*};
+use chrono::prelude::{DateTime, Utc};
 use diesel::r2d2::Pool;
 use diesel::{
     prelude::*,
@@ -9,6 +10,7 @@ use serde::Deserialize;
 use serde::{de::DeserializeOwned, Serialize};
 
 use std::marker::PhantomData;
+use std::time::SystemTime;
 
 use uuid::Uuid;
 
@@ -21,6 +23,7 @@ pub struct JobInfoDB<'a> {
     pub uuid: &'a str,
     pub status: &'a str,
     pub output: &'a str,
+    pub create_time: &'a str,
 }
 
 #[derive(Debug, Serialize, Deserialize, Queryable, PartialEq)]
@@ -29,6 +32,16 @@ pub struct JobInfoResultDB {
     pub uuid: String,
     pub status: String,
     pub output: String,
+    pub create_time: String,
+}
+
+
+// convert current system time to iso8601
+// cf., https://stackoverflow.com/questions/64146345/how-do-i-convert-a-systemtime-to-iso-8601-in-rust
+fn iso8601(st: &SystemTime) -> String {
+    let dt: DateTime<Utc> = (*st).into();
+    format!("{}", dt.format("%+"))
+    // formats like "2001-07-08T00:34:60.026490+09:30"
 }
 
 /// this struct contains the necessary data for storing jobs in an sqlite db
@@ -67,10 +80,12 @@ impl<
         let conn = self.db_pool.get().map_err(|e| {
             std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
         })?;
+        let now = SystemTime::now();
         let new_job_db_info = JobInfoDB {
             uuid: &info.id.to_string(),
             status: &(serde_json::to_string(&info.status)?),
             output: &(serde_json::to_string(&info.result)?),
+            create_time: &iso8601(&now),
         };
         diesel::insert_into(job_info::table)
             .values(&new_job_db_info)
@@ -88,9 +103,10 @@ impl<
         let conn = self.db_pool.get().map_err(|e| {
             std::io::Error::new(std::io::ErrorKind::Other, format!("coudl not get connection: {}", e.to_string()))
         })?;
-        use crate::schema::job_info::uuid;
+        use crate::schema::job_info::{uuid, create_time};
         let job_info_result = job_info::dsl::job_info
             .filter(uuid.eq(id.to_string()))
+            .order((create_time.desc(),))
             .load::<JobInfoResultDB>(&conn)
             .map_err(|e| {
                 std::io::Error::new(std::io::ErrorKind::Other, format!("could not load job_info_result: {}", e.to_string()))
