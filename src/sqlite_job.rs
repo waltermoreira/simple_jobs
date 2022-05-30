@@ -98,7 +98,7 @@ impl<
         let conn = self.db_pool.get().map_err(|e| {
             std::io::Error::new(
                 std::io::ErrorKind::Other,
-                format!("coudl not get connection: {}", e.to_string()),
+                format!("coudl not get connection: {e}"),
             )
         })?;
         use crate::schema::job_info::{create_time, uuid};
@@ -109,10 +109,7 @@ impl<
             .map_err(|e| {
                 std::io::Error::new(
                     std::io::ErrorKind::Other,
-                    format!(
-                        "could not load job_info_result: {}",
-                        e.to_string()
-                    ),
+                    format!("could not load job_info_result: {e}",),
                 )
             })?;
         dbg!(&job_info_result);
@@ -127,7 +124,7 @@ impl<
             id: Uuid::parse_str(&job_info.uuid).map_err(|e| {
                 std::io::Error::new(
                     std::io::ErrorKind::Other,
-                    format!("could not parse uuid: {}", e.to_string()),
+                    format!("could not parse uuid: {e}"),
                 )
             })?,
             status: serde_json::from_str(&job_info.status)?,
