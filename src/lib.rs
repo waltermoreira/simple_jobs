@@ -22,7 +22,7 @@
 //!
 //! ```
 //! # use simple_jobs::{self, Job, FSJob};
-//! # use serde::{Deserialize, Serialize}; 
+//! # use serde::{Deserialize, Serialize};
 //! # #[derive(Clone, Serialize, Deserialize, Debug)]
 //! # struct MyError {}
 //! async fn example() -> std::io::Result<()> {
@@ -49,14 +49,14 @@ extern crate diesel;
 #[cfg(feature = "diesel_jobs")]
 pub mod sqlite_job;
 
-use std::fmt::{Debug, self};
+use std::fmt::{self, Debug};
 
 use futures::Future;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// The status value for a job.
-/// 
+///
 /// Immediately after [`Job::submit`] the status is `Started`.
 /// On completion, the status if `Finished`, regardless of whether that task
 /// succeeded or errored (see the field `result` of [`JobInfo`] to differentiate).
@@ -79,9 +79,9 @@ impl fmt::Display for JobStatus {
 }
 
 /// Metadata for a job.
-/// 
+///
 /// This is the data that gets saved and restored.
-/// 
+///
 /// The field result is `None` while there is no output from the job. On completion,
 /// the proper branch for `Result` is set.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -102,7 +102,7 @@ impl<Output, Error> Default for JobInfo<Output, Error> {
 
 impl<Output, Error> JobInfo<Output, Error> {
     /// Create new information for a job.
-    /// 
+    ///
     /// Usually, the user does not need to create this struct manually.
     pub fn new() -> Self {
         Self {
@@ -114,14 +114,14 @@ impl<Output, Error> JobInfo<Output, Error> {
 }
 
 /// A job.
-/// 
+///
 /// This is the main trait that the user should implement.
 pub trait Job: Clone + Send + Sync + 'static {
     type Output: Clone + Send + 'static;
     type Error: Clone + Send + 'static;
 
     /// Save the job metadata.
-    /// 
+    ///
     /// Given a reference to a [`JobInfo`], save it in the chosen backend.
     fn save(
         &self,
@@ -129,7 +129,7 @@ pub trait Job: Clone + Send + Sync + 'static {
     ) -> Result<(), std::io::Error>;
 
     /// Load the metadata for a job.
-    /// 
+    ///
     /// Given the id for a job, build a [`JobInfo`] from the chosen backend.
     fn load(
         &self,
@@ -137,9 +137,9 @@ pub trait Job: Clone + Send + Sync + 'static {
     ) -> Result<JobInfo<Self::Output, Self::Error>, std::io::Error>;
 
     /// Start a job.
-    /// 
+    ///
     /// Start a job, passing it the id ([`Uuid`]) and the job metadata ([`JobInfo`]).
-    /// With that information, the job can update its status (using `.load` and 
+    /// With that information, the job can update its status (using `.load` and
     /// `.save`).
     fn submit<F, Fut>(&self, f: F) -> Result<Uuid, std::io::Error>
     where

@@ -1,11 +1,7 @@
-use crate::{schema::*};
+use crate::schema::*;
 use chrono::prelude::{DateTime, Utc};
 use diesel::r2d2::Pool;
-use diesel::{
-    prelude::*,
-    r2d2::{ConnectionManager},
-    Insertable,
-};
+use diesel::{prelude::*, r2d2::ConnectionManager, Insertable};
 use serde::Deserialize;
 use serde::{de::DeserializeOwned, Serialize};
 
@@ -34,7 +30,6 @@ pub struct JobInfoResultDB {
     pub output: String,
     pub create_time: String,
 }
-
 
 // convert current system time to iso8601
 // cf., https://stackoverflow.com/questions/64146345/how-do-i-convert-a-systemtime-to-iso-8601-in-rust
@@ -101,29 +96,39 @@ impl<
         id: Uuid,
     ) -> Result<JobInfo<Self::Output, Self::Error>, std::io::Error> {
         let conn = self.db_pool.get().map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::Other, format!("coudl not get connection: {}", e.to_string()))
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("coudl not get connection: {}", e.to_string()),
+            )
         })?;
-        use crate::schema::job_info::{uuid, create_time};
+        use crate::schema::job_info::{create_time, uuid};
         let job_info_result = job_info::dsl::job_info
             .filter(uuid.eq(id.to_string()))
             .order((create_time.desc(),))
             .load::<JobInfoResultDB>(&conn)
             .map_err(|e| {
-                std::io::Error::new(std::io::ErrorKind::Other, format!("could not load job_info_result: {}", e.to_string()))
-            })?;
-        dbg!(&job_info_result);
-        let job_info = job_info_result
-            .first()
-            .ok_or_else(|| {
                 std::io::Error::new(
                     std::io::ErrorKind::Other,
-                    format!("Could not find {id} in the database."),
+                    format!(
+                        "could not load job_info_result: {}",
+                        e.to_string()
+                    ),
                 )
             })?;
+        dbg!(&job_info_result);
+        let job_info = job_info_result.first().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Could not find {id} in the database."),
+            )
+        })?;
         dbg!(&job_info);
         let job = JobInfo {
             id: Uuid::parse_str(&job_info.uuid).map_err(|e| {
-                std::io::Error::new(std::io::ErrorKind::Other, format!("could not parse uuid: {}", e.to_string()))
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("could not parse uuid: {}", e.to_string()),
+                )
             })?,
             status: serde_json::from_str(&job_info.status)?,
             result: serde_json::from_str(&job_info.output)?,

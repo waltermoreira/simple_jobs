@@ -1,10 +1,13 @@
 [package]
 name = "simple_jobs"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 license = "MIT"
 description = "Very simple persistence layer on top of Tokio tasks."
-authors = ["Walter Moreira <walter@waltermoreira.net>"]
+authors = [
+    "Walter Moreira <walter@waltermoreira.net>",
+    "Joe Stubbs <joestubbs5@gmail.com>",
+]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -21,7 +24,7 @@ futures = "0.3.21"
 tokio = { version = "1.17.0", features = ["full"] }
 diesel = { version = "1.4.5", features = ["sqlite", "r2d2"], optional = true }
 diesel_migrations = { version = "1.4", optional = true }
-chrono = {version = "0.4"}
+chrono = { version = "0.4" }
 
 
 [dev-dependencies]

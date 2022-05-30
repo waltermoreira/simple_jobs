@@ -1,14 +1,13 @@
 use std::time::Duration;
 
-use diesel::{r2d2::ConnectionManager, SqliteConnection};
 use diesel::r2d2;
-use serde::{Serialize, Deserialize};
-use simple_jobs::{Job, JobStatus};
+use diesel::{r2d2::ConnectionManager, SqliteConnection};
+use serde::{Deserialize, Serialize};
 use simple_jobs::sqlite_job::DieselSqliteJob;
+use simple_jobs::{Job, JobStatus};
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 struct MyError {}
-
 
 #[tokio::test]
 async fn test_submit() -> std::io::Result<()> {
@@ -22,7 +21,8 @@ async fn test_submit() -> std::io::Result<()> {
         .build(manager)
         .expect("Failed to create DB pool.");
     dbg!("got pool..");
-    let _result = diesel_migrations::run_pending_migrations(&pool.get().unwrap());        
+    let _result =
+        diesel_migrations::run_pending_migrations(&pool.get().unwrap());
     dbg!("migrations have run..");
     let job: DieselSqliteJob<u16, MyError> = DieselSqliteJob::new(&pool);
     let j = job.submit(|_id, _job| async move { Ok(1u16) })?;
@@ -42,5 +42,4 @@ async fn test_submit() -> std::io::Result<()> {
     assert_eq!(j2.result.unwrap().unwrap(), 1u16);
 
     Ok(())
-
 }
