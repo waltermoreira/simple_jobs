@@ -1,16 +1,16 @@
-use std::time::Duration;
-
-use diesel::r2d2;
-use diesel::{r2d2::ConnectionManager, SqliteConnection};
-use serde::{Deserialize, Serialize};
-use simple_jobs::sqlite_job::DieselSqliteJob;
-use simple_jobs::{Job, JobStatus};
-
-#[derive(Clone, Serialize, Deserialize, Debug)]
-struct MyError {}
-
+#[cfg(feature = "diesel_jobs")]
 #[tokio::test]
 async fn test_submit() -> std::io::Result<()> {
+    use diesel::r2d2;
+    use diesel::{r2d2::ConnectionManager, SqliteConnection};
+    use serde::{Deserialize, Serialize};
+    use simple_jobs::sqlite_job::DieselSqliteJob;
+    use simple_jobs::{Job, JobStatus};
+    use std::time::Duration;
+
+    #[derive(Clone, Serialize, Deserialize, Debug)]
+    struct MyError {}
+
     let dir = tempfile::tempdir()?;
     dbg!(&dir);
     let mem_db = format!("{}/test", dir.path().to_string_lossy());

@@ -41,13 +41,16 @@
 pub use self::fs_job::FSJob;
 
 pub mod fs_job;
-pub mod schema;
 
+#[cfg(feature = "diesel_jobs")]
 #[macro_use]
 extern crate diesel;
 
 #[cfg(feature = "diesel_jobs")]
 pub mod sqlite_job;
+
+#[cfg(feature = "diesel_jobs")]
+pub mod schema;
 
 use std::fmt::{self, Debug};
 
