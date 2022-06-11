@@ -146,7 +146,7 @@ pub trait Job: Clone + Send + Sync + 'static {
     /// `.save`).
     fn submit<F, Fut>(&self, f: F) -> Result<Uuid, std::io::Error>
     where
-        F: Fn(Uuid, Self) -> Fut,
+        F: FnOnce(Uuid, Self) -> Fut,
         Fut:
             Future<Output = Result<Self::Output, Self::Error>> + Send + 'static,
     {
@@ -314,6 +314,20 @@ mod tests {
         let saved = SAVED.lock().expect("coudn't get lock");
         let a = saved.get(&id).unwrap();
         assert_eq!(a.status, JobStatus::Running);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn capture_environment() -> Result<(), std::io::Error> {
+        let saver = MySaver {};
+        let s = String::from("test");
+        let id = saver.submit(|_id, _job| async move {
+            let out = s.len() as u16;
+            Ok(out)
+        })?;
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        let x = saver.load(id)?.result.unwrap().unwrap();
+        assert_eq!(x, 4);
         Ok(())
     }
 }
