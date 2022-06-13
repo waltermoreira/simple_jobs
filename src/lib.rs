@@ -107,19 +107,19 @@ pub struct JobInfo<Output, Error, Metadata, Status> {
     pub metadata: Option<Metadata>,
 }
 
-impl<Output, Error, Metadata, Status, T> Default
+impl<Output, Error, Metadata, Status> Default
     for JobInfo<Output, Error, Metadata, Status>
 where
-    Status: StatusType<Base=T>,
+    Status: StatusType,
 {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<Output, Error, Metadata, Status, T> JobInfo<Output, Error, Metadata, Status>
+impl<Output, Error, Metadata, Status> JobInfo<Output, Error, Metadata, Status>
 where
-    Status: StatusType<Base=T>,
+    Status: StatusType,
 {
     /// Create new information for a job.
     ///
