@@ -81,6 +81,12 @@ impl fmt::Display for JobStatus {
     }
 }
 
+pub trait StatusType<T> {
+    fn started() -> Self;
+    fn finished() -> Self;
+    fn status(value: T) -> Self;
+}
+
 /// Metadata for a job.
 ///
 /// This is the data that gets saved and restored.
@@ -88,31 +94,38 @@ impl fmt::Display for JobStatus {
 /// The field result is `None` while there is no output from the job. On completion,
 /// the proper branch for `Result` is set.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct JobInfo<Output, Error, Metadata> {
+pub struct JobInfo<Output, Error, Metadata, Status> {
     /// The unique id for a job (UUID v4).
     pub id: Uuid,
     /// Job status (see [`JobStatus`]).
-    pub status: JobStatus,
+    pub status: Status,
     /// Result of the job (`None` while there is no output).
     pub result: Option<Result<Output, Error>>,
     /// Metadata passed to the job by the user at start time.
     pub metadata: Option<Metadata>,
 }
 
-impl<Output, Error, Metadata> Default for JobInfo<Output, Error, Metadata> {
+impl<Output, Error, Metadata, Status> Default
+    for JobInfo<Output, Error, Metadata, Status>
+where
+    Status: StatusType<String>,
+{
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<Output, Error, Metadata> JobInfo<Output, Error, Metadata> {
+impl<Output, Error, Metadata, Status> JobInfo<Output, Error, Metadata, Status>
+where
+    Status: StatusType<String>,
+{
     /// Create new information for a job.
     ///
     /// Usually, the user does not need to create this struct manually.
     pub fn new() -> Self {
         Self {
             id: Uuid::new_v4(),
-            status: JobStatus::Started,
+            status: Status::started(),
             result: None,
             metadata: None,
         }
@@ -126,13 +139,14 @@ pub trait Job: Clone + Send + Sync + 'static {
     type Output: Clone + Send + 'static;
     type Error: Clone + Send + 'static;
     type Metadata: Clone + Send + 'static;
+    type Status: StatusType<String> + Clone + Send + 'static;
 
     /// Save the job metadata.
     ///
     /// Given a reference to a [`JobInfo`], save it in the chosen backend.
     fn save(
         &self,
-        info: &JobInfo<Self::Output, Self::Error, Self::Metadata>,
+        info: &JobInfo<Self::Output, Self::Error, Self::Metadata, Self::Status>,
     ) -> Result<(), std::io::Error>;
 
     /// Load the metadata for a job.
@@ -142,7 +156,7 @@ pub trait Job: Clone + Send + Sync + 'static {
         &self,
         id: Uuid,
     ) -> Result<
-        JobInfo<Self::Output, Self::Error, Self::Metadata>,
+        JobInfo<Self::Output, Self::Error, Self::Metadata, Self::Status>,
         std::io::Error,
     >;
 
@@ -161,8 +175,12 @@ pub trait Job: Clone + Send + Sync + 'static {
         Fut:
             Future<Output = Result<Self::Output, Self::Error>> + Send + 'static,
     {
-        let mut info: JobInfo<Self::Output, Self::Error, Self::Metadata> =
-            JobInfo::default();
+        let mut info: JobInfo<
+            Self::Output,
+            Self::Error,
+            Self::Metadata,
+            Self::Status,
+        > = JobInfo::default();
         self.save(&info)?;
         let id = info.id;
         {
@@ -171,7 +189,7 @@ pub trait Job: Clone + Send + Sync + 'static {
             let fut = f(id, that, metadata);
             tokio::spawn(async move {
                 let res = fut.await;
-                info.status = JobStatus::Finished;
+                info.status = Self::Status::finished();
                 info.result = Some(res);
                 this.save(&info).unwrap();
             });
@@ -183,7 +201,7 @@ pub trait Job: Clone + Send + Sync + 'static {
 
 #[cfg(test)]
 mod tests {
-    use crate::{Job, JobStatus};
+    use crate::{Job, StatusType};
     use lazy_static::lazy_static;
     use uuid::Uuid;
 
@@ -198,8 +216,31 @@ mod tests {
         value: usize,
     }
 
+    #[derive(Clone, Debug)]
+    struct MyStatus {
+        value: String,
+    }
+
+    impl StatusType<String> for MyStatus {
+        fn started() -> Self {
+            MyStatus {
+                value: "started".to_string(),
+            }
+        }
+
+        fn finished() -> Self {
+            MyStatus {
+                value: "finished".to_string(),
+            }
+        }
+
+        fn status(value: String) -> Self {
+            MyStatus { value }
+        }
+    }
+
     lazy_static! {
-        static ref SAVED: Mutex<HashMap<Uuid, JobInfo<u16, MyError, MyMetadata>>> =
+        static ref SAVED: Mutex<HashMap<Uuid, JobInfo<u16, MyError, MyMetadata, MyStatus>>> =
             Mutex::new(HashMap::new());
     }
 
@@ -210,10 +251,11 @@ mod tests {
         type Output = u16;
         type Error = MyError;
         type Metadata = MyMetadata;
+        type Status = MyStatus;
 
         fn save(
             &self,
-            info: &JobInfo<Self::Output, Self::Error, Self::Metadata>,
+            info: &JobInfo<Self::Output, Self::Error, Self::Metadata, Self::Status>,
         ) -> Result<(), std::io::Error> {
             let mut saved = SAVED.lock().expect("cannot get lock");
             saved.insert(info.id, info.clone());
@@ -224,7 +266,7 @@ mod tests {
             &self,
             id: uuid::Uuid,
         ) -> Result<
-            JobInfo<Self::Output, Self::Error, Self::Metadata>,
+            JobInfo<Self::Output, Self::Error, Self::Metadata, Self::Status>,
             std::io::Error,
         > {
             let x = SAVED.lock().unwrap().get(&id).unwrap().clone();
@@ -256,7 +298,7 @@ mod tests {
         )?;
         let saved = SAVED.lock().expect("coudn't get lock");
         let a = saved.get(&id).unwrap();
-        assert_eq!(a.status, super::JobStatus::Started);
+        assert_eq!(a.status.value, "started");
         Ok(())
     }
 
@@ -274,7 +316,7 @@ mod tests {
         tokio::time::sleep(Duration::from_secs(1)).await;
         let saved = SAVED.lock().expect("coudn't get lock");
         let a = saved.get(&id).unwrap();
-        assert_eq!(a.status, super::JobStatus::Finished);
+        assert_eq!(a.status.value, "finished");
         assert_eq!(a.result.as_ref().unwrap().as_ref().unwrap(), &10u16);
         Ok(())
     }
@@ -287,7 +329,7 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(100)).await;
         let saved = SAVED.lock().expect("coudn't get lock");
         let a = saved.get(&id).unwrap();
-        assert_eq!(a.status, super::JobStatus::Finished);
+        assert_eq!(a.status.value, "finished");
         assert!(a.result.as_ref().unwrap().as_ref().is_err());
         Ok(())
     }
@@ -345,7 +387,7 @@ mod tests {
             |id, _, _| async move {
                 let saver = MySaver {};
                 let mut j = saver.load(id).unwrap();
-                j.status = JobStatus::Running;
+                j.status = MyStatus::status("running".to_string());
                 saver.save(&j).unwrap();
                 tokio::time::sleep(Duration::from_millis(500)).await;
                 Ok(2u16)
@@ -355,7 +397,7 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(100)).await;
         let saved = SAVED.lock().expect("coudn't get lock");
         let a = saved.get(&id).unwrap();
-        assert_eq!(a.status, JobStatus::Running);
+        assert_eq!(a.status.value, "running");
         Ok(())
     }
 
@@ -382,9 +424,7 @@ mod tests {
         let saver = MySaver {};
         let metadata = MyMetadata { value: 5usize };
         let id = saver.submit(
-            |_id, _job, md| async move {
-                Ok(md.value as u16)
-            },
+            |_id, _job, md| async move { Ok(md.value as u16) },
             metadata,
         )?;
         tokio::time::sleep(Duration::from_millis(10)).await;
@@ -392,5 +432,11 @@ mod tests {
         assert_eq!(x, 5);
 
         Ok(())
+    }
+
+    #[test]
+    fn test_status() {
+        dbg!(MyStatus::started());
+        dbg!(MyStatus::status("foo".to_string()));
     }
 }
