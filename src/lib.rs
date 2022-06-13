@@ -88,22 +88,24 @@ impl fmt::Display for JobStatus {
 /// The field result is `None` while there is no output from the job. On completion,
 /// the proper branch for `Result` is set.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct JobInfo<Output, Error> {
+pub struct JobInfo<Output, Error, Metadata> {
     /// The unique id for a job (UUID v4).
     pub id: Uuid,
     /// Job status (see [`JobStatus`]).
     pub status: JobStatus,
     /// Result of the job (`None` while there is no output).
     pub result: Option<Result<Output, Error>>,
+    /// Metadata passed to the job by the user at start time.
+    pub metadata: Option<Metadata>,
 }
 
-impl<Output, Error> Default for JobInfo<Output, Error> {
+impl<Output, Error, Metadata> Default for JobInfo<Output, Error, Metadata> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<Output, Error> JobInfo<Output, Error> {
+impl<Output, Error, Metadata> JobInfo<Output, Error, Metadata> {
     /// Create new information for a job.
     ///
     /// Usually, the user does not need to create this struct manually.
@@ -112,6 +114,7 @@ impl<Output, Error> JobInfo<Output, Error> {
             id: Uuid::new_v4(),
             status: JobStatus::Started,
             result: None,
+            metadata: None,
         }
     }
 }
@@ -122,13 +125,14 @@ impl<Output, Error> JobInfo<Output, Error> {
 pub trait Job: Clone + Send + Sync + 'static {
     type Output: Clone + Send + 'static;
     type Error: Clone + Send + 'static;
+    type Metadata: Clone + Send + 'static;
 
     /// Save the job metadata.
     ///
     /// Given a reference to a [`JobInfo`], save it in the chosen backend.
     fn save(
         &self,
-        info: &JobInfo<Self::Output, Self::Error>,
+        info: &JobInfo<Self::Output, Self::Error, Self::Metadata>,
     ) -> Result<(), std::io::Error>;
 
     /// Load the metadata for a job.
@@ -137,26 +141,34 @@ pub trait Job: Clone + Send + Sync + 'static {
     fn load(
         &self,
         id: Uuid,
-    ) -> Result<JobInfo<Self::Output, Self::Error>, std::io::Error>;
+    ) -> Result<
+        JobInfo<Self::Output, Self::Error, Self::Metadata>,
+        std::io::Error,
+    >;
 
     /// Start a job.
     ///
     /// Start a job, passing it the id ([`Uuid`]) and the job metadata ([`JobInfo`]).
     /// With that information, the job can update its status (using `.load` and
     /// `.save`).
-    fn submit<F, Fut>(&self, f: F) -> Result<Uuid, std::io::Error>
+    fn submit<F, Fut>(
+        &self,
+        f: F,
+        metadata: Self::Metadata,
+    ) -> Result<Uuid, std::io::Error>
     where
-        F: FnOnce(Uuid, Self) -> Fut,
+        F: FnOnce(Uuid, Self, Self::Metadata) -> Fut,
         Fut:
             Future<Output = Result<Self::Output, Self::Error>> + Send + 'static,
     {
-        let mut info: JobInfo<Self::Output, Self::Error> = JobInfo::default();
+        let mut info: JobInfo<Self::Output, Self::Error, Self::Metadata> =
+            JobInfo::default();
         self.save(&info)?;
         let id = info.id;
         {
             let this = self.clone();
             let that = self.clone();
-            let fut = f(id, that);
+            let fut = f(id, that, metadata);
             tokio::spawn(async move {
                 let res = fut.await;
                 info.status = JobStatus::Finished;
@@ -181,8 +193,13 @@ mod tests {
     #[derive(Clone, Debug)]
     pub struct MyError {}
 
+    #[derive(Clone, Debug, Default)]
+    pub struct MyMetadata {
+        value: usize,
+    }
+
     lazy_static! {
-        static ref SAVED: Mutex<HashMap<Uuid, JobInfo<u16, MyError>>> =
+        static ref SAVED: Mutex<HashMap<Uuid, JobInfo<u16, MyError, MyMetadata>>> =
             Mutex::new(HashMap::new());
     }
 
@@ -192,10 +209,11 @@ mod tests {
     impl Job for MySaver {
         type Output = u16;
         type Error = MyError;
+        type Metadata = MyMetadata;
 
         fn save(
             &self,
-            info: &JobInfo<Self::Output, Self::Error>,
+            info: &JobInfo<Self::Output, Self::Error, Self::Metadata>,
         ) -> Result<(), std::io::Error> {
             let mut saved = SAVED.lock().expect("cannot get lock");
             saved.insert(info.id, info.clone());
@@ -205,8 +223,10 @@ mod tests {
         fn load(
             &self,
             id: uuid::Uuid,
-        ) -> Result<JobInfo<Self::Output, Self::Error>, std::io::Error>
-        {
+        ) -> Result<
+            JobInfo<Self::Output, Self::Error, Self::Metadata>,
+            std::io::Error,
+        > {
             let x = SAVED.lock().unwrap().get(&id).unwrap().clone();
             Ok(x)
         }
@@ -215,7 +235,8 @@ mod tests {
     #[tokio::test]
     async fn submit_should_save_with_saver() -> Result<(), std::io::Error> {
         let saver = MySaver {};
-        let id = saver.submit(|_, _| async { Ok(2u16) })?;
+        let metadata = Default::default();
+        let id = saver.submit(|_, _, _| async { Ok(2u16) }, metadata)?;
         let saved = SAVED.lock().expect("couldn't get lock");
         assert_eq!(saved.get(&id).expect("couldn't get id").id, id);
         Ok(())
@@ -225,10 +246,14 @@ mod tests {
     async fn task_should_change_states_with_saver() -> Result<(), std::io::Error>
     {
         let saver = MySaver {};
-        let id = saver.submit(|_, _| async {
-            tokio::time::sleep(Duration::from_secs(1)).await;
-            Ok(10u16)
-        })?;
+        let metadata = Default::default();
+        let id = saver.submit(
+            |_, _, _| async {
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                Ok(10u16)
+            },
+            metadata,
+        )?;
         let saved = SAVED.lock().expect("coudn't get lock");
         let a = saved.get(&id).unwrap();
         assert_eq!(a.status, super::JobStatus::Started);
@@ -238,10 +263,14 @@ mod tests {
     #[tokio::test]
     async fn task_should_finish_with_saver() -> Result<(), std::io::Error> {
         let saver = MySaver {};
-        let id = saver.submit(|_, _| async {
-            tokio::time::sleep(Duration::from_millis(500)).await;
-            Ok(10u16)
-        })?;
+        let metadata = Default::default();
+        let id = saver.submit(
+            |_, _, _| async {
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                Ok(10u16)
+            },
+            metadata,
+        )?;
         tokio::time::sleep(Duration::from_secs(1)).await;
         let saved = SAVED.lock().expect("coudn't get lock");
         let a = saved.get(&id).unwrap();
@@ -253,7 +282,8 @@ mod tests {
     #[tokio::test]
     async fn task_should_save_error() -> Result<(), std::io::Error> {
         let saver = MySaver {};
-        let id = saver.submit(|_, _| async { Err(MyError {}) })?;
+        let metadata = Default::default();
+        let id = saver.submit(|_, _, _| async { Err(MyError {}) }, metadata)?;
         tokio::time::sleep(Duration::from_millis(100)).await;
         let saved = SAVED.lock().expect("coudn't get lock");
         let a = saved.get(&id).unwrap();
@@ -265,12 +295,16 @@ mod tests {
     #[tokio::test]
     async fn can_read_from_task_with_saver() -> Result<(), std::io::Error> {
         let saver = MySaver {};
-        let id = saver.submit(|id, _| async move {
-            let saver = MySaver {};
-            let j = saver.load(id).unwrap();
-            let i = j.id.as_fields().1;
-            Ok(i)
-        })?;
+        let metadata = Default::default();
+        let id = saver.submit(
+            |id, _, _| async move {
+                let saver = MySaver {};
+                let j = saver.load(id).unwrap();
+                let i = j.id.as_fields().1;
+                Ok(i)
+            },
+            metadata,
+        )?;
         tokio::time::sleep(Duration::from_millis(100)).await;
         let saved = SAVED.lock().expect("coudn't get lock");
         let a = saved.get(&id).unwrap();
@@ -285,10 +319,14 @@ mod tests {
     async fn can_read_from_task_with_job_argument() -> Result<(), std::io::Error>
     {
         let job = MySaver {};
-        let id = job.submit(|id, job| async move {
-            let jobinfo = job.load(id).unwrap();
-            Ok(jobinfo.id.as_fields().1)
-        })?;
+        let metadata = Default::default();
+        let id = job.submit(
+            |id, job, _| async move {
+                let jobinfo = job.load(id).unwrap();
+                Ok(jobinfo.id.as_fields().1)
+            },
+            metadata,
+        )?;
         tokio::time::sleep(Duration::from_millis(100)).await;
         let saved = SAVED.lock().expect("coudn't get lock");
         let a = saved.get(&id).unwrap();
@@ -302,14 +340,18 @@ mod tests {
     #[tokio::test]
     async fn can_write_from_task_with_saver() -> Result<(), std::io::Error> {
         let saver = MySaver {};
-        let id = saver.submit(|id, _| async move {
-            let saver = MySaver {};
-            let mut j = saver.load(id).unwrap();
-            j.status = JobStatus::Running;
-            saver.save(&j).unwrap();
-            tokio::time::sleep(Duration::from_millis(500)).await;
-            Ok(2u16)
-        })?;
+        let metadata = Default::default();
+        let id = saver.submit(
+            |id, _, _| async move {
+                let saver = MySaver {};
+                let mut j = saver.load(id).unwrap();
+                j.status = JobStatus::Running;
+                saver.save(&j).unwrap();
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                Ok(2u16)
+            },
+            metadata,
+        )?;
         tokio::time::sleep(Duration::from_millis(100)).await;
         let saved = SAVED.lock().expect("coudn't get lock");
         let a = saved.get(&id).unwrap();
@@ -320,14 +362,35 @@ mod tests {
     #[tokio::test]
     async fn capture_environment() -> Result<(), std::io::Error> {
         let saver = MySaver {};
+        let metadata = Default::default();
         let s = String::from("test");
-        let id = saver.submit(|_id, _job| async move {
-            let out = s.len() as u16;
-            Ok(out)
-        })?;
+        let id = saver.submit(
+            |_id, _job, _| async move {
+                let out = s.len() as u16;
+                Ok(out)
+            },
+            metadata,
+        )?;
         tokio::time::sleep(Duration::from_millis(10)).await;
         let x = saver.load(id)?.result.unwrap().unwrap();
         assert_eq!(x, 4);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_pass_metadata() -> Result<(), std::io::Error> {
+        let saver = MySaver {};
+        let metadata = MyMetadata { value: 5usize };
+        let id = saver.submit(
+            |_id, _job, md| async move {
+                Ok(md.value as u16)
+            },
+            metadata,
+        )?;
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        let x = saver.load(id)?.result.unwrap().unwrap();
+        assert_eq!(x, 5);
+
         Ok(())
     }
 }
