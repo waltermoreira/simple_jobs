@@ -81,10 +81,12 @@ impl fmt::Display for JobStatus {
     }
 }
 
-pub trait StatusType<T> {
+pub trait StatusType {
+    type Base;
+
     fn started() -> Self;
     fn finished() -> Self;
-    fn status(value: T) -> Self;
+    fn status(value: Self::Base) -> Self;
 }
 
 /// Metadata for a job.
@@ -105,19 +107,19 @@ pub struct JobInfo<Output, Error, Metadata, Status> {
     pub metadata: Option<Metadata>,
 }
 
-impl<Output, Error, Metadata, Status> Default
+impl<Output, Error, Metadata, Status, T> Default
     for JobInfo<Output, Error, Metadata, Status>
 where
-    Status: StatusType<String>,
+    Status: StatusType<Base=T>,
 {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<Output, Error, Metadata, Status> JobInfo<Output, Error, Metadata, Status>
+impl<Output, Error, Metadata, Status, T> JobInfo<Output, Error, Metadata, Status>
 where
-    Status: StatusType<String>,
+    Status: StatusType<Base=T>,
 {
     /// Create new information for a job.
     ///
@@ -139,7 +141,7 @@ pub trait Job: Clone + Send + Sync + 'static {
     type Output: Clone + Send + 'static;
     type Error: Clone + Send + 'static;
     type Metadata: Clone + Send + 'static;
-    type Status: StatusType<String> + Clone + Send + 'static;
+    type Status: StatusType + Clone + Send + 'static;
 
     /// Save the job metadata.
     ///
@@ -221,7 +223,9 @@ mod tests {
         value: String,
     }
 
-    impl StatusType<String> for MyStatus {
+    impl StatusType for MyStatus {
+        type Base = String;
+
         fn started() -> Self {
             MyStatus {
                 value: "started".to_string(),
