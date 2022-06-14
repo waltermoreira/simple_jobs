@@ -8,7 +8,7 @@ use std::{
 use serde::{de::DeserializeOwned, Serialize};
 use uuid::Uuid;
 
-use crate::{Job, JobInfo, StatusType};
+use crate::{Job, JobInfo};
 
 /// A basic implementation of the trait [`Job`].
 ///
@@ -42,13 +42,7 @@ impl<
         Output: Clone + Send + Sync + Serialize + DeserializeOwned + 'static,
         Error: Clone + Send + Sync + Serialize + DeserializeOwned + 'static,
         Metadata: Clone + Send + Sync + Serialize + DeserializeOwned + 'static,
-        Status: StatusType
-            + Clone
-            + Send
-            + Sync
-            + Serialize
-            + DeserializeOwned
-            + 'static,
+        Status: Clone + Send + Sync + Serialize + DeserializeOwned + 'static,
     > Job for FSJob<Output, Error, Metadata, Status>
 {
     type Output = Output;

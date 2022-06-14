@@ -61,12 +61,11 @@ use uuid::Uuid;
 /// Type for Status values.
 ///
 /// The user can implement this trait to provide their own status values.
-pub trait StatusType {
-    type Base;
-
-    fn started() -> Self;
-    fn finished() -> Self;
-    fn status(value: Self::Base) -> Self;
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub enum StatusType<T> {
+    Started,
+    Finished,
+    StatusValue(T)
 }
 
 /// Metadata for a job.
@@ -80,7 +79,7 @@ pub struct JobInfo<Output, Error, Metadata, Status> {
     /// The unique id for a job (UUID v4).
     pub id: Uuid,
     /// Job status (see [`StatusType`]).
-    pub status: Status,
+    pub status: StatusType<Status>,
     /// Result of the job (`None` while there is no output).
     pub result: Option<Result<Output, Error>>,
     /// Metadata passed to the job by the user at start time.
@@ -89,8 +88,6 @@ pub struct JobInfo<Output, Error, Metadata, Status> {
 
 impl<Output, Error, Metadata, Status> Default
     for JobInfo<Output, Error, Metadata, Status>
-where
-    Status: StatusType,
 {
     fn default() -> Self {
         Self::new()
@@ -98,8 +95,6 @@ where
 }
 
 impl<Output, Error, Metadata, Status> JobInfo<Output, Error, Metadata, Status>
-where
-    Status: StatusType,
 {
     /// Create new information for a job.
     ///
@@ -107,7 +102,7 @@ where
     pub fn new() -> Self {
         Self {
             id: Uuid::new_v4(),
-            status: Status::started(),
+            status: StatusType::Started,
             result: None,
             metadata: None,
         }
@@ -121,7 +116,7 @@ pub trait Job: Clone + Send + Sync + 'static {
     type Output: Clone + Send + 'static;
     type Error: Clone + Send + 'static;
     type Metadata: Clone + Send + 'static;
-    type Status: StatusType + Clone + Send + 'static;
+    type Status: Clone + Send + 'static;
 
     /// Save the job metadata.
     ///
@@ -172,7 +167,7 @@ pub trait Job: Clone + Send + Sync + 'static {
             let fut = f(id, that, metadata);
             tokio::spawn(async move {
                 let res = fut.await;
-                info.status = Self::Status::finished();
+                info.status = StatusType::Finished;
                 info.result = Some(res);
                 this.save(&info).unwrap();
             });
@@ -199,33 +194,8 @@ mod tests {
         value: usize,
     }
 
-    #[derive(Clone, Debug)]
-    struct MyStatus {
-        value: String,
-    }
-
-    impl StatusType for MyStatus {
-        type Base = String;
-
-        fn started() -> Self {
-            MyStatus {
-                value: "started".to_string(),
-            }
-        }
-
-        fn finished() -> Self {
-            MyStatus {
-                value: "finished".to_string(),
-            }
-        }
-
-        fn status(value: String) -> Self {
-            MyStatus { value }
-        }
-    }
-
     lazy_static! {
-        static ref SAVED: Mutex<HashMap<Uuid, JobInfo<u16, MyError, MyMetadata, MyStatus>>> =
+        static ref SAVED: Mutex<HashMap<Uuid, JobInfo<u16, MyError, MyMetadata, String>>> =
             Mutex::new(HashMap::new());
     }
 
@@ -236,7 +206,7 @@ mod tests {
         type Output = u16;
         type Error = MyError;
         type Metadata = MyMetadata;
-        type Status = MyStatus;
+        type Status = String;
 
         fn save(
             &self,
@@ -288,7 +258,7 @@ mod tests {
         )?;
         let saved = SAVED.lock().expect("coudn't get lock");
         let a = saved.get(&id).unwrap();
-        assert_eq!(a.status.value, "started");
+        assert_eq!(a.status, StatusType::Started);
         Ok(())
     }
 
@@ -306,7 +276,7 @@ mod tests {
         tokio::time::sleep(Duration::from_secs(1)).await;
         let saved = SAVED.lock().expect("coudn't get lock");
         let a = saved.get(&id).unwrap();
-        assert_eq!(a.status.value, "finished");
+        assert_eq!(a.status, StatusType::Finished);
         assert_eq!(a.result.as_ref().unwrap().as_ref().unwrap(), &10u16);
         Ok(())
     }
@@ -319,7 +289,7 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(100)).await;
         let saved = SAVED.lock().expect("coudn't get lock");
         let a = saved.get(&id).unwrap();
-        assert_eq!(a.status.value, "finished");
+        assert_eq!(a.status, StatusType::Finished);
         assert!(a.result.as_ref().unwrap().as_ref().is_err());
         Ok(())
     }
@@ -377,7 +347,7 @@ mod tests {
             |id, _, _| async move {
                 let saver = MySaver {};
                 let mut j = saver.load(id).unwrap();
-                j.status = MyStatus::status("running".to_string());
+                j.status = StatusType::StatusValue("running".to_string());
                 saver.save(&j).unwrap();
                 tokio::time::sleep(Duration::from_millis(500)).await;
                 Ok(2u16)
@@ -387,7 +357,7 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(100)).await;
         let saved = SAVED.lock().expect("coudn't get lock");
         let a = saved.get(&id).unwrap();
-        assert_eq!(a.status.value, "running");
+        assert_eq!(a.status, StatusType::StatusValue("running".to_string()));
         Ok(())
     }
 
@@ -424,9 +394,9 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_status() {
-        dbg!(MyStatus::started());
-        dbg!(MyStatus::status("foo".to_string()));
-    }
+    // #[test]
+    // fn test_status() {
+    //     dbg!(MyStatus::started());
+    //     dbg!(MyStatus::status("foo".to_string()));
+    // }
 }
