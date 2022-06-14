@@ -52,35 +52,15 @@ pub mod fs_job;
 // #[cfg(feature = "diesel_jobs")]
 // pub mod schema;
 
-use std::fmt::{self, Debug};
+use std::fmt::Debug;
 
 use futures::Future;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-/// The status value for a job.
+/// Type for Status values.
 ///
-/// Immediately after [`Job::submit`] the status is `Started`.
-/// On completion, the status if `Finished`, regardless of whether that task
-/// succeeded or errored (see the field `result` of [`JobInfo`] to differentiate).
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum JobStatus {
-    Started,
-    Running,
-    Finished,
-}
-
-impl fmt::Display for JobStatus {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
-            Self::Started => write!(f, "started"),
-            Self::Running => write!(f, "running"),
-            Self::Finished => write!(f, "finished"),
-        }
-    }
-}
-
+/// The user can implement this trait to provide their own status values.
 pub trait StatusType {
     type Base;
 
@@ -99,7 +79,7 @@ pub trait StatusType {
 pub struct JobInfo<Output, Error, Metadata, Status> {
     /// The unique id for a job (UUID v4).
     pub id: Uuid,
-    /// Job status (see [`JobStatus`]).
+    /// Job status (see [`StatusType`]).
     pub status: Status,
     /// Result of the job (`None` while there is no output).
     pub result: Option<Result<Output, Error>>,
@@ -154,6 +134,7 @@ pub trait Job: Clone + Send + Sync + 'static {
     /// Load the metadata for a job.
     ///
     /// Given the id for a job, build a [`JobInfo`] from the chosen backend.
+    #[allow(clippy::type_complexity)]
     fn load(
         &self,
         id: Uuid,
@@ -259,7 +240,12 @@ mod tests {
 
         fn save(
             &self,
-            info: &JobInfo<Self::Output, Self::Error, Self::Metadata, Self::Status>,
+            info: &JobInfo<
+                Self::Output,
+                Self::Error,
+                Self::Metadata,
+                Self::Status,
+            >,
         ) -> Result<(), std::io::Error> {
             let mut saved = SAVED.lock().expect("cannot get lock");
             saved.insert(info.id, info.clone());
