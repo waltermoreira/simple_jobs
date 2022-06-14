@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use serde::{Deserialize, Serialize};
 use simple_jobs::{fs_job::FSJob, wait, Job, StatusType};
 
