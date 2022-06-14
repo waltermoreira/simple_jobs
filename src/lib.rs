@@ -25,11 +25,14 @@
 //! # use serde::{Deserialize, Serialize};
 //! # #[derive(Clone, Serialize, Deserialize, Debug)]
 //! # struct MyError {}
+//! # #[derive(Clone, Serialize, Deserialize, Debug)]
+//! # struct MyMetadata {}
 //! async fn example() -> std::io::Result<()> {
-//!     let job: FSJob<u16, MyError> = FSJob::new("/tmp".into());
-//!     let id = job.submit(|id, job| async move {
+//!     let job: FSJob<u16, MyError, MyMetadata, String> = FSJob::new("/tmp".into());
+//!     let my_metadata = MyMetadata {};
+//!     let id = job.submit(|id, job, metadata| async move {
 //!         Ok(0u16)
-//!     })?;
+//!     }, my_metadata)?;
 //!     let info = job.load(id)?;
 //!     println!("Job status: {:?}", info.status);
 //!     Ok(())
@@ -52,7 +55,7 @@ pub mod fs_job;
 // #[cfg(feature = "diesel_jobs")]
 // pub mod schema;
 
-use std::fmt::Debug;
+use std::{fmt::Debug, time::Duration};
 
 use futures::Future;
 use serde::{Deserialize, Serialize};
@@ -65,7 +68,7 @@ use uuid::Uuid;
 pub enum StatusType<T> {
     Started,
     Finished,
-    StatusValue(T)
+    StatusValue(T),
 }
 
 /// Metadata for a job.
@@ -94,8 +97,7 @@ impl<Output, Error, Metadata, Status> Default
     }
 }
 
-impl<Output, Error, Metadata, Status> JobInfo<Output, Error, Metadata, Status>
-{
+impl<Output, Error, Metadata, Status> JobInfo<Output, Error, Metadata, Status> {
     /// Create new information for a job.
     ///
     /// Usually, the user does not need to create this struct manually.
@@ -109,6 +111,15 @@ impl<Output, Error, Metadata, Status> JobInfo<Output, Error, Metadata, Status>
     }
 }
 
+/// Convenience alias for using [`JobInfo`] together with the associated types
+/// from [`Job`].
+type Info<T> = JobInfo<
+    <T as Job>::Output,
+    <T as Job>::Error,
+    <T as Job>::Metadata,
+    <T as Job>::Status,
+>;
+
 /// A job.
 ///
 /// This is the main trait that the user should implement.
@@ -116,27 +127,17 @@ pub trait Job: Clone + Send + Sync + 'static {
     type Output: Clone + Send + 'static;
     type Error: Clone + Send + 'static;
     type Metadata: Clone + Send + 'static;
-    type Status: Clone + Send + 'static;
+    type Status: PartialEq + Clone + Send + 'static;
 
     /// Save the job metadata.
     ///
     /// Given a reference to a [`JobInfo`], save it in the chosen backend.
-    fn save(
-        &self,
-        info: &JobInfo<Self::Output, Self::Error, Self::Metadata, Self::Status>,
-    ) -> Result<(), std::io::Error>;
+    fn save(&self, info: &Info<Self>) -> Result<(), std::io::Error>;
 
     /// Load the metadata for a job.
     ///
     /// Given the id for a job, build a [`JobInfo`] from the chosen backend.
-    #[allow(clippy::type_complexity)]
-    fn load(
-        &self,
-        id: Uuid,
-    ) -> Result<
-        JobInfo<Self::Output, Self::Error, Self::Metadata, Self::Status>,
-        std::io::Error,
-    >;
+    fn load(&self, id: Uuid) -> Result<Info<Self>, std::io::Error>;
 
     /// Start a job.
     ///
@@ -153,12 +154,7 @@ pub trait Job: Clone + Send + Sync + 'static {
         Fut:
             Future<Output = Result<Self::Output, Self::Error>> + Send + 'static,
     {
-        let mut info: JobInfo<
-            Self::Output,
-            Self::Error,
-            Self::Metadata,
-            Self::Status,
-        > = JobInfo::default();
+        let mut info: JobInfo<_, _, _, _> = JobInfo::default();
         self.save(&info)?;
         let id = info.id;
         {
@@ -177,9 +173,22 @@ pub trait Job: Clone + Send + Sync + 'static {
     }
 }
 
+pub async fn wait<J>(id: Uuid, job: &J) -> Result<Info<J>, std::io::Error>
+where
+    J: Job,
+{
+    loop {
+        let the_job = job.load(id)?;
+        if the_job.status == StatusType::Finished {
+            return Ok(the_job);
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::{Job, StatusType};
+    use crate::{wait, Job, StatusType};
     use lazy_static::lazy_static;
     use uuid::Uuid;
 
@@ -394,9 +403,19 @@ mod tests {
         Ok(())
     }
 
-    // #[test]
-    // fn test_status() {
-    //     dbg!(MyStatus::started());
-    //     dbg!(MyStatus::status("foo".to_string()));
-    // }
+    #[tokio::test]
+    async fn test_wait() -> Result<(), std::io::Error> {
+        let saver = MySaver {};
+        let metadata = MyMetadata { value: 5usize };
+        let id = saver.submit(
+            |_id, _job, md| async move {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                Ok(md.value as u16)
+            },
+            metadata,
+        )?;
+        let r = wait(id, &saver).await?;
+        assert_eq!(r.result.unwrap().unwrap(), 5);
+        Ok(())
+    }
 }
