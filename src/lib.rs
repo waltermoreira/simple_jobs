@@ -67,8 +67,8 @@ use uuid::Uuid;
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum StatusType<T> {
     Started,
-    Finished,
     StatusValue(T),
+    Finished,
 }
 
 /// Metadata for a job.
